@@ -1,102 +1,117 @@
 from typing import Dict
 from app.db.database import SessionLocal
 from app.db.models import BrandPersonaModel
+from app.utils.json_utils import extract_json
 import json
 import ollama
-import re
 
 
-def extract_json(text: str):
+# -----------------------------
+# Schema Guard / Validator
+# -----------------------------
+
+def validate_and_fix_persona(persona: dict, fallback_tone: str, business_type: str):
     """
-    Extract JSON from LLM output even if:
-    - It contains extra text
-    - Markdown fences
-    - Single quotes
-    - Comments
+    Validates persona JSON from LLM.
+    Fixes non-critical fields.
+    Fails fast on critical identity fields.
     """
-    # Remove Markdown fences
-    cleaned = text.replace("```json", "").replace("```", "").strip()
 
-    # Try direct JSON load
-    try:
-        return json.loads(cleaned)
-    except:
-        pass
+    fixed = persona.copy()
 
-    # Find JSON with regex
-    match = re.search(r"\{[\s\S]*\}", cleaned)
-    if match:
-        json_str = match.group()
+    # 🔴 Critical fields → MUST exist
+    for key in ["business_name", "description"]:
+        if key not in fixed or not fixed[key]:
+            raise ValueError(f"Missing critical key in persona JSON: {key}")
 
-        # Replace single quotes with double quotes
-        json_str = json_str.replace("'", '"')
+    # 🟡 Controlled fields (system-owned)
+    fixed["business_type"] = business_type
+    fixed["tone"] = fixed.get("tone") or fallback_tone or "friendly"
 
-        return json.loads(json_str)
+    # 🟢 Optional fields with safe defaults
+    if not fixed.get("tagline"):
+        fixed["tagline"] = ""
 
-    raise ValueError("Could not extract JSON from model output.")
+    if not isinstance(fixed.get("color_palette"), list):
+        fixed["color_palette"] = ["#000000", "#FFFFFF", "#CCCCCC"]
 
+    return fixed
+
+
+# -----------------------------
+# Brand Persona Agent
+# -----------------------------
 
 class BrandPersonaAgent:
 
     async def generate(self, payload: Dict):
 
-        # ----------- INPUT HANDLING -----------------------
+        # --- Input normalization ---
         raw_name = payload.get("business_name")
         business_name = raw_name.strip() if isinstance(raw_name, str) else ""
 
-        business_type = payload.get("business_type")
+        business_type = payload.get("business_type", "business")
         location = payload.get("location", "your area")
         target_audience = payload.get("target_audience", "local customers")
-        tone = payload.get("tone", "friendly")
+        tone = payload.get("tone") or "friendly"
 
-        # Decide if AI needs to generate a business name
+        # --- Name rule ---
         if business_name == "":
-            name_instruction = "You MUST create a unique, attractive, brandable business name."
-            business_name_placeholder = "AI_GENERATE_NAME"
+            name_instruction = (
+                "You MUST create a unique, attractive, brandable business name."
+            )
         else:
             name_instruction = f"Use this exact business name: {business_name}"
-            business_name_placeholder = business_name
 
-        # ----------- IMPROVED JSON-STRICT PROMPT -----------------------
+        # --- Prompt ---
         prompt = f"""
-        Act as a professional brand persona generator.
+You are a professional brand persona generator.
 
-        {name_instruction}
+{name_instruction}
 
-        Business Type: {business_type}
-        Location: {location}
-        Target Audience: {target_audience}
-        Tone: {tone}
+Business Type: {business_type}
+Location: {location}
+Target Audience: {target_audience}
+Tone: {tone}
 
-        Respond ONLY in VALID JSON.
-        No explanations. No markdown. No comments.
+Rules:
+- Respond ONLY with valid JSON
+- No explanations
+- No markdown
+- No comments
+- Use double quotes everywhere
 
-        JSON OUTPUT FORMAT:
+JSON format:
+{{
+  "business_name": "",
+  "business_type": "{business_type}",
+  "tone": "{tone}",
+  "tagline": "",
+  "color_palette": ["#hex1", "#hex2", "#hex3"],
+  "description": ""
+}}
+"""
 
-        {{
-            "business_name": "",
-            "business_type": "{business_type}",
-            "tone": "{tone}",
-            "tagline": "",
-            "color_palette": ["#hex1", "#hex2", "#hex3"],
-            "description": ""
-        }}
-        """
-
-        # ----------- CALL OLLAMA (phi3:mini) -----------------------
+        # --- LLM Call ---
         response = ollama.chat(
-            model="phi3:mini",
+            model="qwen2.5:1.5b-instruct-q4_0",
             messages=[{"role": "user", "content": prompt}]
         )
 
-        llm_output = response["message"]["content"]
+        raw_output = response["message"]["content"]
 
-        # ----------- SAFE JSON PARSING ------------------------------
-        persona_data = extract_json(llm_output)
+        # --- Extract JSON ---
+        persona_data = extract_json(raw_output)
 
-        # ----------- SAVE TO DATABASE -------------------------------
+        # --- Validate & Self-heal ---
+        persona_data = validate_and_fix_persona(
+            persona=persona_data,
+            fallback_tone=tone,
+            business_type=business_type
+        )
+
+        # --- Persist to DB ---
         db = SessionLocal()
-
         new_persona = BrandPersonaModel(
             business_name=persona_data["business_name"],
             business_type=persona_data["business_type"],
@@ -111,7 +126,6 @@ class BrandPersonaAgent:
         db.refresh(new_persona)
         db.close()
 
-        # ----------- RETURN RESPONSE -------------------------------
         return {
             "brand_persona_id": new_persona.id,
             "brand_persona": persona_data

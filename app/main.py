@@ -3,7 +3,6 @@ from app.orchestrator import Orchestrator
 from pydantic import BaseModel
 from typing import List, Optional
 
-
 app = FastAPI()
 orchestrator = Orchestrator()
 
@@ -14,7 +13,12 @@ class GenerateRequest(BaseModel):
     location: Optional[str] = None
     target_audience: Optional[str] = None
     tone: Optional[str] = None
+    platforms: Optional[List[str]] = ["Instagram"]
+    campaign_type: Optional[str] = "weekly"
+    campaign_days: Optional[int] = 7   # NEW
     outputs: List[str]
+
+
 
 
 @app.post("/generate")

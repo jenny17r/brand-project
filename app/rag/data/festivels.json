@@ -1,0 +1,35 @@
+[
+  {
+    "name": "Pongal",
+    "region": "Tamil Nadu",
+    "description": "Harvest festival celebrating gratitude, prosperity, traditional food, sugarcane, and family gatherings.",
+    "marketing_angles": [
+      "Traditional vibes",
+      "Family offers",
+      "Local flavors",
+      "Morning promotions"
+    ]
+  },
+  {
+    "name": "Diwali",
+    "region": "India",
+    "description": "Festival of lights symbolizing joy, prosperity, gifting, and celebration.",
+    "marketing_angles": [
+      "Festive offers",
+      "Evening ambience",
+      "Lights & decor",
+      "Celebration moments"
+    ]
+  },
+  {
+    "name": "Christmas",
+    "region": "Global",
+    "description": "Festival of warmth, joy, gifting, and cozy gatherings.",
+    "marketing_angles": [
+      "Coffee moments",
+      "Cozy ambience",
+      "Desserts",
+      "Holiday specials"
+    ]
+  }
+]
